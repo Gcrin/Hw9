@@ -4,11 +4,26 @@
 #include "HwPlayerController.h"
 
 #include "EngineUtils.h"
+#include "HwPlayerState.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/EditableTextBox.h"
 #include "Hw9/Hw9.h"
+#include "Hw9/GameModes/HwGameModeBase.h"
 #include "Hw9/UI/HwChatInput.h"
-#include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
+
+AHwPlayerController::AHwPlayerController()
+{
+	bReplicates = true;
+}
+
+void AHwPlayerController::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ThisClass, NotificationText);
+}
 
 void AHwPlayerController::BeginPlay()
 {
@@ -40,6 +55,15 @@ void AHwPlayerController::BeginPlay()
 			}
 		}
 	}
+
+	if (IsValid(NotificationTextWidgetClass) == true)
+	{
+		NotificationTextWidgetInstance = CreateWidget<UUserWidget>(this, NotificationTextWidgetClass);
+		if (IsValid(NotificationTextWidgetInstance) == true)
+		{
+			NotificationTextWidgetInstance->AddToViewport();
+		}
+	}
 }
 
 void AHwPlayerController::ClientRPCPrintChatMessageString_Implementation(const FString& InChatMessageString)
@@ -49,12 +73,13 @@ void AHwPlayerController::ClientRPCPrintChatMessageString_Implementation(const F
 
 void AHwPlayerController::ServerRPCPrintChatMessageString_Implementation(const FString& InChatMessageString)
 {
-	for (TActorIterator<AHwPlayerController> It(GetWorld()); It; ++It)
+	AGameModeBase* GM = UGameplayStatics::GetGameMode(this);
+	if (IsValid(GM) == true)
 	{
-		AHwPlayerController* CXPlayerController = *It;
-		if (IsValid(CXPlayerController) == true)
+		AHwGameModeBase* CXGM = Cast<AHwGameModeBase>(GM);
+		if (IsValid(CXGM) == true)
 		{
-			CXPlayerController->ClientRPCPrintChatMessageString(InChatMessageString);
+			CXGM->PrintChatMessageString(this, InChatMessageString);
 		}
 	}
 }
@@ -65,7 +90,13 @@ void AHwPlayerController::SetChatMessageString(const FString& InChatMessageStrin
 
 	if (IsLocalController() == true)
 	{
-		ServerRPCPrintChatMessageString(InChatMessageString);
+		AHwPlayerState* HwPlayerState = GetPlayerState<AHwPlayerState>();
+		if (IsValid(HwPlayerState) == true)
+		{
+			FString CombinedMessageString = HwPlayerState->GetPlayerInfoString() + TEXT(": ") + InChatMessageString;
+
+			ServerRPCPrintChatMessageString(CombinedMessageString);
+		}
 	}
 }
 
